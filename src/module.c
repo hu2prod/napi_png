@@ -394,6 +394,7 @@ napi_value png_decode_size(napi_env env, napi_callback_info info) {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 #define PNG_INIT_FILE_SIZE 1024
 #define PNG_BIG_FILE_SIZE 10240
+// TODO increase memory size *2
 void write_to_memory(png_structp png_ptr, png_bytep buffer, png_size_t size) {
   Image_data *img;
   size_t len;
@@ -622,6 +623,203 @@ napi_value png_encode_rgba(napi_env env, napi_callback_info info) {
   return ret_arr;
 }
 
+
+napi_value png_encode_rgb(napi_env env, napi_callback_info info) {
+  napi_status status;
+  
+  napi_value ret_dummy;
+  status = napi_create_int32(env, 0, &ret_dummy);
+  
+  if (status != napi_ok) {
+    napi_throw_error(env, NULL, "Unable to create return value ret_dummy");
+    return ret_dummy;
+  }
+  
+  size_t argc = 5;
+  napi_value argv[5];
+  status = napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
+  
+  if (status != napi_ok) {
+    napi_throw_error(env, NULL, "Failed to parse arguments");
+    return ret_dummy;
+  }
+  
+  ////////////////////////////////////////////////////////////////////////////////////////////////////
+  u8 *data_src;
+  size_t data_src_len;
+  status = napi_get_buffer_info(env, argv[0], (void**)&data_src, &data_src_len);
+  
+  if (status != napi_ok) {
+    napi_throw_error(env, NULL, "Invalid buffer was passed as argument of data_src");
+    return ret_dummy;
+  }
+  
+  i32 size_x;
+  status = napi_get_value_int32(env, argv[1], &size_x);
+  
+  if (status != napi_ok) {
+    napi_throw_error(env, NULL, "Invalid i32 was passed as argument of size_x");
+    return ret_dummy;
+  }
+  
+  i32 size_y;
+  status = napi_get_value_int32(env, argv[2], &size_y);
+  
+  if (status != napi_ok) {
+    napi_throw_error(env, NULL, "Invalid i32 was passed as argument of size_y");
+    return ret_dummy;
+  }
+  
+  u8 *data_dst;
+  size_t data_dst_len;
+  status = napi_get_buffer_info(env, argv[3], (void**)&data_dst, &data_dst_len);
+  
+  if (status != napi_ok) {
+    napi_throw_error(env, NULL, "Invalid buffer was passed as argument of data_dst");
+    return ret_dummy;
+  }
+  
+  i32 data_dst_offset;
+  status = napi_get_value_int32(env, argv[4], &data_dst_offset);
+  
+  if (status != napi_ok) {
+    napi_throw_error(env, NULL, "Invalid i32 was passed as argument of data_dst_offset");
+    return ret_dummy;
+  }
+  
+  ////////////////////////////////////////////////////////////////////////////////////////////////////
+  png_structp png_ptr;
+  png_infop info_ptr;
+  png_bytep *row_pointer_list = NULL;
+  
+  if ((png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL)) == NULL) {
+    napi_throw_error(env, NULL, "fail png_create_write_struct");
+    return ret_dummy;
+  }
+  if ((info_ptr = png_create_info_struct(png_ptr)) == NULL) {
+    png_destroy_read_struct(&png_ptr, NULL, NULL);
+    napi_throw_error(env, NULL, "fail png_create_info_struct");
+    return ret_dummy;
+  }
+  Image_data proxy;
+  
+  if (setjmp(png_jmpbuf(png_ptr))) {
+    png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+    if (row_pointer_list) {
+      free(row_pointer_list);
+    }
+    if (proxy.data) {
+      free(proxy.data);
+    }
+    napi_throw_error(env, NULL, "fail setjmp png_jmpbuf");
+    return ret_dummy;
+  }
+  
+  proxy.data = NULL;
+  proxy.length = 0;
+  proxy.position = 0;
+  
+  png_set_write_fn(png_ptr, (void *) &proxy, write_to_memory, flush_memory);
+  png_set_IHDR(png_ptr, info_ptr, size_x, size_y, 8,
+                 PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
+                 PNG_COMPRESSION_TYPE_BASE, PNG_FILTER_TYPE_BASE);
+  
+  png_write_info(png_ptr, info_ptr);
+  row_pointer_list = (png_bytep *)malloc(sizeof(png_bytep *)*size_y);
+  for(int i = 0; i < size_y; i++){
+    row_pointer_list[i] = (data_src + i * size_x * 3);
+  }
+  
+  png_write_image(png_ptr, (png_bytepp) row_pointer_list);
+  png_write_end(png_ptr, info_ptr);
+  png_destroy_write_struct(&png_ptr, &info_ptr);
+  
+  free(row_pointer_list);
+  
+  napi_value realloc_buffer;
+  bool realloc = false;
+  unsigned long len = proxy.position;
+  if (len + data_dst_offset > data_dst_len) {
+    realloc = true;
+    data_dst_offset = 0;
+    unsigned long new_len = 1;
+    // slow but whatever
+    while(len > new_len) {
+      new_len <<= 1;
+    }
+    
+    status = napi_create_buffer(env, new_len, (void**)(&data_dst), &realloc_buffer);
+    if (status != napi_ok) {
+      free(proxy.data);
+      napi_throw_error(env, NULL, "fail napi_create_buffer");
+      return ret_dummy;
+    }
+  }
+  memcpy(data_dst + data_dst_offset, proxy.data, proxy.position);
+  free(proxy.data);
+  
+  ////////////////////////////////////////////////////////////////////////////////////////////////////
+  napi_value ret_arr;
+  status = napi_create_array(env, &ret_arr);
+  if (status != napi_ok) {
+    napi_throw_error(env, NULL, "Unable to create return value");
+    return ret_dummy;
+  }
+  // data_dst_offset
+  napi_value ret_data_dst_offset;
+  status = napi_create_int32(env, data_dst_offset, &ret_data_dst_offset);
+  
+  if (status != napi_ok) {
+    napi_throw_error(env, NULL, "Unable to create return value ret_data_dst_offset");
+    return ret_dummy;
+  }
+  
+  status = napi_set_element(env, ret_arr, 0, ret_data_dst_offset);
+  
+  if (status != napi_ok) {
+    napi_throw_error(env, NULL, "Unable to create return value ret_data_dst_offset assign");
+    return ret_dummy;
+  }
+  // ret_dst_write_size
+  napi_value ret_data_dst_actual_size;
+  status = napi_create_int32(env, len, &ret_data_dst_actual_size);
+  
+  if (status != napi_ok) {
+    napi_throw_error(env, NULL, "Unable to create return value ret_data_dst_actual_size");
+    return ret_dummy;
+  }
+  
+  status = napi_set_element(env, ret_arr, 1, ret_data_dst_actual_size);
+  
+  if (status != napi_ok) {
+    napi_throw_error(env, NULL, "Unable to create return value ret_dst_end_offset assign");
+    return ret_dummy;
+  }
+  //
+  
+  if (realloc) {
+    status = napi_set_element(env, ret_arr, 2, realloc_buffer);
+    
+    if (status != napi_ok) {
+      napi_throw_error(env, NULL, "Unable to create return value ret_height assign");
+      return ret_dummy;
+    }
+  } else {
+    // argv[3] == data_dst
+    // Я не знаю можно ли делать присваивание napi_value
+    // Потому просто такой хардкод
+    status = napi_set_element(env, ret_arr, 2, argv[3]);
+    
+    if (status != napi_ok) {
+      napi_throw_error(env, NULL, "Unable to create return value ret_height assign");
+      return ret_dummy;
+    }
+  }
+  
+  return ret_arr;
+}
+
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 napi_value Init(napi_env env, napi_value exports) {
@@ -654,6 +852,16 @@ napi_value Init(napi_env env, napi_value exports) {
   }
   
   status = napi_set_named_property(env, exports, "png_encode_rgba", fn);
+  if (status != napi_ok) {
+    napi_throw_error(env, NULL, "Unable to populate exports");
+  }
+  ////////////////////////////////////////////////////////////////////////////////////////////////////
+  status = napi_create_function(env, NULL, 0, png_encode_rgb, NULL, &fn);
+  if (status != napi_ok) {
+    napi_throw_error(env, NULL, "Unable to wrap native function");
+  }
+  
+  status = napi_set_named_property(env, exports, "png_encode_rgb", fn);
   if (status != napi_ok) {
     napi_throw_error(env, NULL, "Unable to populate exports");
   }
