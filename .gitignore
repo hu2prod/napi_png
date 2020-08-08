@@ -4,3 +4,5 @@ build
 test
 test.js
 mem_leak_test.js
+test.buf
+test_encode.png
