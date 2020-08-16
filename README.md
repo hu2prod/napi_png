@@ -1,5 +1,5 @@
 # napi_png
-## install
+## install requirements
 
     apt-get install -y libpng-dev
 
