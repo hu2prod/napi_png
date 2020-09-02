@@ -4,7 +4,6 @@
     apt-get install -y libpng-dev
 
 ## use
-decode png
 
     mod = require("napi_png")
     fs = require("fs")
