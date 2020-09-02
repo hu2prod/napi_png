@@ -1,7 +1,7 @@
 {
   "name": "napi_png",
   "version": "1.0.0",
-  "description": "",
+  "description": "do not leak memory",
   "main": "index.js",
   "scripts": {
     "install": "node-gyp configure build"
