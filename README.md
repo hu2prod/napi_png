@@ -1,4 +1,9 @@
 # napi_png
+## install requirements
+
+    apt-get install -y libpng-dev
+
+## use
 decode png
 
     mod = require("napi_png")
